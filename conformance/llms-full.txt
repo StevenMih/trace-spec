@@ -320,7 +320,7 @@ ______________________________________________________________________
 
 Level 1 adds hardware attestation: the record names the TEE (trusted execution environment, a processor mode that keeps a program's memory sealed off) it ran in and the measurement (a fingerprint of the code loaded into it). The suite checks that these fields are well formed; it does not verify the hardware's signed report, which is a separate step (see [Known limitations](https://trace.agentrust-io.com/conformance/LIMITATIONS/index.md)).
 
-`runtime.platform` must be a value from the `runtime.platform` enum in `schemas/trace-claim.json` other than `software-only`, which carries no hardware attestation evidence. The measurement must be non-zero. `appraisal.status` must be `"affirming"` (TR-APR-005).
+`runtime.platform` must be a value from the `runtime.platform` enum in `schemas/trace-claim.json` other than `software-only`, which carries no hardware attestation evidence. `runtime.measurement` must be a valid `sha256:` or `sha384:` digest (TR-RTE-002 checks format only; all-zero values also match this check). `appraisal.status` must be `"affirming"` (TR-APR-005).
 
 **Minimum conformant Level 1 record** (changes from Level 0 in bold context):
 
@@ -368,7 +368,7 @@ Level 1 adds hardware attestation: the record names the TEE (trusted execution e
 **What causes a Level 1 failure over Level 0:**
 
 - `runtime.platform` is `"software-only"`: TR-RTE-001
-- `runtime.measurement` is all zeros: TR-RTE-002 (all-zero is invalid at Level 1)
+- `runtime.measurement` is missing or not a valid `sha256:` or `sha384:` digest: TR-RTE-002 (format only; all-zero values also match this check)
 - `build_provenance` missing entirely: TR-SCA-001, TR-SCA-002
 - `appraisal.status` is `"none"`: while not a hard schema violation, a conformant Level 1 record should carry `"affirming"`; TR-APR-005 reports this from Level 1 and skips it at Level 0
 
@@ -396,7 +396,7 @@ The `transparency` field must be an HTTPS URI with a host, pointing to a SCITT r
 
 **What causes a Level 2 failure over Level 1:**
 
-- `tool_transcript.hash` missing or not a valid `sha256:` digest: TR-TXN-001
+- `tool_transcript.hash` missing or not a valid `sha256:` or `sha384:` digest: TR-TXN-001
 - `tool_transcript.call_count` negative or not an integer: TR-TXN-002
 - `transparency` is absent or empty, is not a string, or is not an `https://` URI with a host: TR-ANC-001
 - no anchor receipt was supplied, the receipt is malformed, or its inclusion proof does not reproduce the committed `merkle_root`: TR-ANC-002. A record cannot reach Level 2 on a URI alone: pass the receipt with `--receipt`
@@ -452,9 +452,9 @@ The table below uses the record's own field names (in code font). The [conforman
 | [Runtime](https://trace.agentrust-io.com/conformance/docs/modules/tr-rte/index.md)      | TR-RTE    | §3.1         | TEE platform enum, measurement format, RIM URI scheme, and verifier-issued nonce comparison                                                                                                |
 | [Policy](https://trace.agentrust-io.com/conformance/docs/modules/tr-pol/index.md)       | TR-POL    | §3.1         | Policy bundle hash format, enforcement mode values, and whether the bundle at `policy_uri` has the declared digest                                                                         |
 | [Appraisal](https://trace.agentrust-io.com/conformance/docs/modules/tr-apr/index.md)    | TR-APR    | §3.1         | Appraisal status enum, verifier URI form, `policy_ref` URI form, and timestamp plausibility. The appraisal policy is never resolved                                                        |
-| [Transcript](https://trace.agentrust-io.com/conformance/docs/modules/tr-txn/index.md)   | TR-TXN    | §3.1         | Tool-call transcript hash binding                                                                                                                                                          |
+| [Transcript](https://trace.agentrust-io.com/conformance/docs/modules/tr-txn/index.md)   | TR-TXN    | §3.1         | Tool-call transcript hash format (`sha256:` or `sha384:`) and call count                                                                                                                   |
 | [Transparency](https://trace.agentrust-io.com/conformance/docs/modules/tr-anc/index.md) | TR-ANC    | §3.2         | SCITT receipt URI form (TR-ANC-001), and offline replay of the inclusion proof against the committed Merkle root when a receipt is supplied (TR-ANC-002). The URI itself is never resolved |
-| [Provenance](https://trace.agentrust-io.com/conformance/docs/modules/tr-sca/index.md)   | TR-SCA    | §3.1         | SLSA provenance level and digest format                                                                                                                                                    |
+| [Provenance](https://trace.agentrust-io.com/conformance/docs/modules/tr-sca/index.md)   | TR-SCA    | §3.1         | SLSA provenance level and digest format (`sha256:` or `sha384:`)                                                                                                                           |
 
 # TR-ENV: Envelope
 
@@ -571,10 +571,10 @@ Checks the record's summary of the tool calls the agent made: a fingerprint of t
 
 ## Required at Level 2+
 
-| Test ID    | Description                                            | Positive Case                      | Negative Case                       |
-| ---------- | ------------------------------------------------------ | ---------------------------------- | ----------------------------------- |
-| TR-TXN-001 | `tool_transcript.hash` is a valid `sha256:` digest     | `sha256:` followed by 64 hex chars | missing, wrong prefix, wrong length |
-| TR-TXN-002 | `tool_transcript.call_count` is a non-negative integer | `0`, `1`, `42`                     | `-1`, `"three"`, absent             |
+| Test ID    | Description                                                     | Positive Case                                      | Negative Case                       |
+| ---------- | --------------------------------------------------------------- | -------------------------------------------------- | ----------------------------------- |
+| TR-TXN-001 | `tool_transcript.hash` is a valid `sha256:` or `sha384:` digest | `sha256:` + 64 hex chars, `sha384:` + 96 hex chars | missing, wrong prefix, wrong length |
+| TR-TXN-002 | `tool_transcript.call_count` is a non-negative integer          | `0`, `1`, `42`                                     | `-1`, `"three"`, absent             |
 
 # TR-ANC: Transparency
 
@@ -597,10 +597,10 @@ Checks the record's statement about how the agent's software was built: the SLSA
 
 ## Required at Level 1+
 
-| Test ID    | Description                                           | Positive Case                      | Negative Case                       |
-| ---------- | ----------------------------------------------------- | ---------------------------------- | ----------------------------------- |
-| TR-SCA-001 | `build_provenance.slsa_level` is 0 to 3               | `0`, `1`, `2`, `3`                 | `4`, `5`, `-1`, `"high"`, absent    |
-| TR-SCA-002 | `build_provenance.digest` is a valid `sha256:` digest | `sha256:` followed by 64 hex chars | missing, wrong prefix, wrong length |
+| Test ID    | Description                                                        | Positive Case                                      | Negative Case                       |
+| ---------- | ------------------------------------------------------------------ | -------------------------------------------------- | ----------------------------------- |
+| TR-SCA-001 | `build_provenance.slsa_level` is 0 to 3                            | `0`, `1`, `2`, `3`                                 | `4`, `5`, `-1`, `"high"`, absent    |
+| TR-SCA-002 | `build_provenance.digest` is a valid `sha256:` or `sha384:` digest | `sha256:` + 64 hex chars, `sha384:` + 96 hex chars | missing, wrong prefix, wrong length |
 
 # Error Codes
 
@@ -630,7 +630,7 @@ Look up a code from a failed or unverified check here: what it means and how to 
 | Code       | Description                                                                                                                           | How to fix                                                                                                                                                             |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | TR-RTE-001 | `runtime` is missing or not an object, or `runtime.platform` is not in the registered set, or is `software-only` at Level 1 and above | Use a value from the `runtime.platform` enum in `schemas/trace-claim.json`. `software-only` carries no hardware attestation evidence and is accepted only at Level 0   |
-| TR-RTE-002 | `runtime.measurement` is not a valid `sha256:` digest                                                                                 | Provide a 64-character hex digest prefixed with `sha256:`; for Level 0 all-zeros is conventional                                                                       |
+| TR-RTE-002 | `runtime.measurement` is not a valid `sha256:` or `sha384:` digest                                                                    | Provide `sha256:` + 64 hex chars or `sha384:` + 96 hex chars; format only, all-zero values also match this check                                                       |
 | TR-RTE-003 | `runtime.rim_uri` is present and is not an `https://` URI                                                                             | Remove `runtime.rim_uri` if not using a RIM, or set it to an `https://` URI. The URI is not resolved and the manifest behind it is not checked; this is a format check |
 | TR-RTE-004 | Level 1+ verification is missing the verifier challenge nonce or the nonce does not match                                             | Supply the verifier's expected nonce and require the attested runtime nonce to match it                                                                                |
 
@@ -654,10 +654,10 @@ Look up a code from a failed or unverified check here: what it means and how to 
 
 ## TR-TXN: Transcript
 
-| Code       | Description                                                | How to fix                                                                                              |
-| ---------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| TR-TXN-001 | `tool_transcript.hash` is not a valid `sha256:` digest     | Set `tool_transcript.hash` to `sha256:` + 64 hex chars of the Merkle root of the tool call log          |
-| TR-TXN-002 | `tool_transcript.call_count` is negative or not an integer | Set `tool_transcript.call_count` to a non-negative integer (0 is valid for sessions with no tool calls) |
+| Code       | Description                                                         | How to fix                                                                                                                 |
+| ---------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| TR-TXN-001 | `tool_transcript.hash` is not a valid `sha256:` or `sha384:` digest | Set `tool_transcript.hash` to `sha256:` + 64 hex chars or `sha384:` + 96 hex chars of the Merkle root of the tool call log |
+| TR-TXN-002 | `tool_transcript.call_count` is negative or not an integer          | Set `tool_transcript.call_count` to a non-negative integer (0 is valid for sessions with no tool calls)                    |
 
 ## TR-ANC: Transparency
 
@@ -668,10 +668,10 @@ Look up a code from a failed or unverified check here: what it means and how to 
 
 ## TR-SCA: Provenance
 
-| Code       | Description                                               | How to fix                                                                                          |
-| ---------- | --------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| TR-SCA-001 | `build_provenance.slsa_level` is not 0 to 3               | Set `build_provenance.slsa_level` to an integer 0 to 3 matching your SLSA build level               |
-| TR-SCA-002 | `build_provenance.digest` is not a valid `sha256:` digest | Set `build_provenance.digest` to `sha256:` + 64 hex chars of the container image or artifact digest |
+| Code       | Description                                                            | How to fix                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| TR-SCA-001 | `build_provenance.slsa_level` is not 0 to 3                            | Set `build_provenance.slsa_level` to an integer 0 to 3 matching your SLSA build level                                           |
+| TR-SCA-002 | `build_provenance.digest` is not a valid `sha256:` or `sha384:` digest | Set `build_provenance.digest` to `sha256:` + 64 hex chars or `sha384:` + 96 hex chars of the container image or artifact digest |
 # Guides
 
 # Writing Custom TRACE Conformance Tests
